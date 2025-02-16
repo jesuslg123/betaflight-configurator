@@ -65,7 +65,7 @@
     "semver-min": "^0.7.2",
     "short-unique-id": "^4.4.4",
     "switchery-latest": "^0.8.2",
-    "three": "~0.97.0",
+    "three": "0.67.0",
     "vite-plugin-pwa": "^0.17.5",
     "vue": "^2.7.16"
   },

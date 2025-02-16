@@ -49,7 +49,9 @@ const Model = function (wrapper, canvas) {
     this.renderer.setSize(this.wrapper.width(), this.wrapper.height());
 
     // load the model including materials
-    let model_file = useWebGLRenderer ? mixerList[FC.MIXER_CONFIG.mixer - 1].model : "fallback";
+    //let model_file = useWebGLRenderer ? mixerList[FC.MIXER_CONFIG.mixer - 1].model : "fallback";
+    let model_file = mixerList[FC.MIXER_CONFIG.mixer - 1].image;
+    console.log("model_file", model_file);
 
     // Temporary workaround for 'custom' model until akfreak's custom model is merged.
     if (model_file == "custom") {
@@ -98,7 +100,7 @@ Model.prototype.loadJSON = function (model_file, callback) {
 
     loader.load(`./resources/models/${model_file}.json`, function (geometry, materials) {
         const model = new THREE.Mesh(geometry, materials);
-
+        console.log("model", model);
         model.scale.set(15, 15, 15);
 
         callback(model);
@@ -106,6 +108,7 @@ Model.prototype.loadJSON = function (model_file, callback) {
 };
 
 Model.prototype.canUseWebGLRenderer = function () {
+    return false;
     // webgl capability detector
     // it would seem the webgl "enabling" through advanced settings will be ignored in the future
     // and webgl will be supported if gpu supports it by default (canary 40.0.2175.0), keep an eye on this one
@@ -162,8 +165,12 @@ Model.prototype.resize = function () {
 
 Model.prototype.dispose = function () {
     if (this.renderer) {
-        this.renderer.forceContextLoss();
-        this.renderer.dispose();
+        if (this.renderer.forceContextLoss) {
+            this.renderer.forceContextLoss();
+        }
+        if (this.renderer.dispose) {
+            this.renderer.dispose();
+        }
         this.renderer = null;
     }
 };
