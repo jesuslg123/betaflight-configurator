@@ -107,6 +107,9 @@ export default defineConfig({
                     },
                 ],
             },
+            devOptions: {
+                enabled: true,
+            },
         }),
     ],
     root: "./src",
