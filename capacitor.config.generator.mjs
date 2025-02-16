@@ -2,7 +2,7 @@ import fs from 'fs';
 import inquirer from 'inquirer';
 import os from 'os';
 
-const VITE_SERVER_PORT = 8000;
+const VITE_SERVER_PORT = process.env.PORT || 8000;
 
 async function getIpList() {
   const nets = os.networkInterfaces();
@@ -67,4 +67,3 @@ if (process.argv.length > 2 && process.argv[2] === '--dev') {
   console.log('Generating capacitor.config.json STANDARD with:\n', capacitorConfig);
   fs.writeFileSync('capacitor.config.json', JSON.stringify(capacitorConfig));
 }
-
