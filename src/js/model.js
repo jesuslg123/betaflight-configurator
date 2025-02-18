@@ -1,5 +1,7 @@
 import FC from "./fc";
 import * as THREE from "three";
+import "./utils/three/Projector";
+import { CanvasRenderer } from "./utils/three/CanvasRenderer";
 
 // generate mixer
 export const mixerList = [
@@ -40,9 +42,16 @@ const Model = function (wrapper, canvas) {
     this.canvas = canvas;
 
     if (useWebGLRenderer) {
-        this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas[0], alpha: true, antialias: true });
+        this.renderer = new THREE.WebGLRenderer({
+            canvas: this.canvas[0],
+            alpha: true,
+            antialias: true,
+        });
     } else {
-        this.renderer = new THREE.CanvasRenderer({ canvas: this.canvas[0], alpha: true });
+        this.renderer = new CanvasRenderer({
+            canvas: this.canvas[0],
+            alpha: true,
+        });
     }
 
     // initialize render size for current canvas size
@@ -109,15 +118,13 @@ Model.prototype.loadJSON = function (model_file, callback) {
 
 Model.prototype.canUseWebGLRenderer = function () {
     return false;
-    // webgl capability detector
-    // it would seem the webgl "enabling" through advanced settings will be ignored in the future
-    // and webgl will be supported if gpu supports it by default (canary 40.0.2175.0), keep an eye on this one
-    const detector_canvas = document.createElement("canvas");
-
-    return (
-        window.WebGLRenderingContext &&
-        (detector_canvas.getContext("webgl") || detector_canvas.getContext("experimental-webgl"))
-    );
+    try {
+        const canvas = document.createElement("canvas");
+        const context = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
+        return !!context;
+    } catch (e) {
+        return false;
+    }
 };
 
 Model.prototype.rotateTo = function (x, y, z) {
