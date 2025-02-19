@@ -37,6 +37,9 @@ export const mixerList = [
 
 // 3D model
 const Model = function (wrapper, canvas) {
+    // Configure model detail level (1-10, where 1 is lowest detail and 10 is highest)
+    this.detailTolerance = 10; // Default value, can be modified
+
     this.useWebGLRenderer = this.canUseWebGLRenderer();
 
     this.wrapper = wrapper;
@@ -135,16 +138,18 @@ Model.prototype.optimizeGeometryForCanvas = function (geometry) {
     // Aggressive geometry optimizations for Canvas renderer
     geometry.mergeVertices();
 
-    // Remove duplicate vertices with moderate tolerance
+    const tolerance = this.detailTolerance; // Use the configurable tolerance
     const vertexMap = {};
     const uniqueVertices = [];
     const updatedFaces = [];
 
     geometry.vertices.forEach((vertex, index) => {
-        // Round coordinates with moderate tolerance
-        const key = [Math.round(vertex.x * 7) / 7, Math.round(vertex.y * 7) / 7, Math.round(vertex.z * 7) / 7].join(
-            ",",
-        );
+        // Round coordinates with configurable tolerance
+        const key = [
+            Math.round(vertex.x * tolerance) / tolerance,
+            Math.round(vertex.y * tolerance) / tolerance,
+            Math.round(vertex.z * tolerance) / tolerance,
+        ].join(",");
 
         if (vertexMap[key] === undefined) {
             vertexMap[key] = uniqueVertices.length;
@@ -158,9 +163,21 @@ Model.prototype.optimizeGeometryForCanvas = function (geometry) {
         const v2 = geometry.vertices[face.b];
         const v3 = geometry.vertices[face.c];
 
-        const key1 = [Math.round(v1.x * 7) / 7, Math.round(v1.y * 7) / 7, Math.round(v1.z * 7) / 7].join(",");
-        const key2 = [Math.round(v2.x * 7) / 7, Math.round(v2.y * 7) / 7, Math.round(v2.z * 7) / 7].join(",");
-        const key3 = [Math.round(v3.x * 7) / 7, Math.round(v3.y * 7) / 7, Math.round(v3.z * 7) / 7].join(",");
+        const key1 = [
+            Math.round(v1.x * tolerance) / tolerance,
+            Math.round(v1.y * tolerance) / tolerance,
+            Math.round(v1.z * tolerance) / tolerance,
+        ].join(",");
+        const key2 = [
+            Math.round(v2.x * tolerance) / tolerance,
+            Math.round(v2.y * tolerance) / tolerance,
+            Math.round(v2.z * tolerance) / tolerance,
+        ].join(",");
+        const key3 = [
+            Math.round(v3.x * tolerance) / tolerance,
+            Math.round(v3.y * tolerance) / tolerance,
+            Math.round(v3.z * tolerance) / tolerance,
+        ].join(",");
 
         // Only keep faces that have three different vertices
         if (
