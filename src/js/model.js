@@ -45,7 +45,9 @@ const Model = function (wrapper, canvas) {
         this.renderer = new THREE.WebGLRenderer({
             canvas: this.canvas[0],
             alpha: true,
-            antialias: true,
+            antialias: false, // Disable antialiasing for performance
+            precision: "lowp", // Use low precision for better performance
+            powerPreference: "high-performance",
         });
     } else {
         this.renderer = new CanvasRenderer({
@@ -57,47 +59,46 @@ const Model = function (wrapper, canvas) {
     // initialize render size for current canvas size
     this.renderer.setSize(this.wrapper.width(), this.wrapper.height());
 
-    // load the model including materials
-    //let model_file = useWebGLRenderer ? mixerList[FC.MIXER_CONFIG.mixer - 1].model : "fallback";
-    let model_file = mixerList[FC.MIXER_CONFIG.mixer - 1].image;
-    console.log("model_file", model_file);
-
-    // Temporary workaround for 'custom' model until akfreak's custom model is merged.
-    if (model_file == "custom") {
-        model_file = "fallback";
-    }
-
-    // setup scene
+    // Setup scene and objects
     this.scene = new THREE.Scene();
-
-    // modelWrapper adds an extra axis of rotation to avoid gimbal lock with the euler angles
     this.modelWrapper = new THREE.Object3D();
-
-    // stationary camera
-    this.camera = new THREE.PerspectiveCamera(60, this.wrapper.width() / this.wrapper.height(), 1, 10000);
-
-    // move camera away from the model
+    this.camera = new THREE.PerspectiveCamera(60, this.wrapper.width() / this.wrapper.height(), 1, 1000);
     this.camera.position.z = 125;
 
-    // some light
+    // Setup lights
     const light = new THREE.AmbientLight(0x404040);
     const light2 = new THREE.DirectionalLight(new THREE.Color(1, 1, 1), 1.5);
     light2.position.set(0, 1, 0);
 
-    // add camera, model, light to the foreground scene
+    // Add objects to scene
     this.scene.add(light);
     this.scene.add(light2);
     this.scene.add(this.camera);
     this.scene.add(this.modelWrapper);
 
-    // Load model file, add to scene and render it
+    // Apply canvas renderer optimizations if needed
+    if (!useWebGLRenderer) {
+        this.applyCanvasRendererOptimizations();
+    }
+
+    // Load the model
+    let model_file = mixerList[FC.MIXER_CONFIG.mixer - 1].image;
+    console.log("model_file", model_file);
+
+    if (model_file == "custom") {
+        model_file = "fallback";
+    }
+
     this.loadJSON(
         model_file,
         function (model) {
             this.model = model;
-
             this.modelWrapper.add(model);
             this.scene.add(this.modelWrapper);
+
+            if (!useWebGLRenderer) {
+                this.applyCanvasRendererOptimizations();
+            }
 
             this.render();
         }.bind(this),
@@ -106,18 +107,36 @@ const Model = function (wrapper, canvas) {
 
 Model.prototype.loadJSON = function (model_file, callback) {
     const loader = new THREE.JSONLoader();
+    const startTime = performance.now();
 
     loader.load(`./resources/models/${model_file}.json`, function (geometry, materials) {
+        // Geometry optimizations
+        geometry.mergeVertices();
+        geometry.computeBoundingSphere();
+
+        // Create model
         const model = new THREE.Mesh(geometry, materials);
-        console.log("model", model);
         model.scale.set(15, 15, 15);
+
+        const loadTime = performance.now() - startTime;
+        console.log(`Model loading stats:
+            Load time: ${loadTime.toFixed(2)}ms
+            Vertices: ${geometry.vertices ? geometry.vertices.length : "N/A"}
+            Faces: ${geometry.faces ? geometry.faces.length : "N/A"}
+            Memory: ${(geometry.attributes ? geometry.attributes.position.array.byteLength : 0) / 1024} KB`);
 
         callback(model);
     });
 };
 
 Model.prototype.canUseWebGLRenderer = function () {
-    return false;
+    // Temporary override for testing - force Canvas renderer
+    const FORCE_CANVAS_RENDERER = true;
+    if (FORCE_CANVAS_RENDERER) {
+        return false;
+    }
+
+    // Original WebGL detection logic (currently disabled)
     try {
         const canvas = document.createElement("canvas");
         const context = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
@@ -132,9 +151,31 @@ Model.prototype.rotateTo = function (x, y, z) {
         return;
     }
 
+    const startTime = performance.now();
+
     this.model.rotation.x = x;
     this.modelWrapper.rotation.y = y;
     this.model.rotation.z = z;
+
+    this.model.updateMatrix();
+    this.modelWrapper.updateMatrix();
+
+    const rotateTime = performance.now() - startTime;
+    if (this.rotateCount === undefined) {
+        this.rotateCount = 0;
+        this.rotateTimeSum = 0;
+    }
+
+    this.rotateCount++;
+    this.rotateTimeSum += rotateTime;
+
+    if (this.rotateCount % 100 === 0) {
+        console.log(`Rotation stats:
+            Average rotation time: ${(this.rotateTimeSum / this.rotateCount).toFixed(2)}ms
+            Total rotations: ${this.rotateCount}`);
+        this.rotateCount = 0;
+        this.rotateTimeSum = 0;
+    }
 
     this.render();
 };
@@ -144,9 +185,31 @@ Model.prototype.rotateBy = function (x, y, z) {
         return;
     }
 
+    const startTime = performance.now();
+
     this.model.rotateX(x);
     this.model.rotateY(y);
     this.model.rotateZ(z);
+
+    this.model.updateMatrix();
+    this.modelWrapper.updateMatrix();
+
+    const rotateTime = performance.now() - startTime;
+    if (this.rotateByCount === undefined) {
+        this.rotateByCount = 0;
+        this.rotateByTimeSum = 0;
+    }
+
+    this.rotateByCount++;
+    this.rotateByTimeSum += rotateTime;
+
+    if (this.rotateByCount % 100 === 0) {
+        console.log(`RotateBy stats:
+            Average rotation time: ${(this.rotateByTimeSum / this.rotateByCount).toFixed(2)}ms
+            Total rotations: ${this.rotateByCount}`);
+        this.rotateByCount = 0;
+        this.rotateByTimeSum = 0;
+    }
 
     this.render();
 };
@@ -156,8 +219,43 @@ Model.prototype.render = function () {
         return;
     }
 
+    const startTime = performance.now();
+
+    // Always update matrices for Canvas renderer
+    this.model.updateMatrix();
+    this.model.updateMatrixWorld();
+    this.modelWrapper.updateMatrix();
+    this.modelWrapper.updateMatrixWorld();
+
     // draw
     this.renderer.render(this.scene, this.camera);
+
+    const endTime = performance.now();
+    const frameTime = endTime - startTime;
+
+    // Log performance every 100 frames
+    if (this.frameCount === undefined) {
+        this.frameCount = 0;
+        this.frameTimeSum = 0;
+        this.lastFpsUpdate = performance.now();
+    }
+
+    this.frameCount++;
+    this.frameTimeSum += frameTime;
+
+    if (endTime - this.lastFpsUpdate >= 1000) {
+        const fps = this.frameCount / ((endTime - this.lastFpsUpdate) / 1000);
+        const avgFrameTime = this.frameTimeSum / this.frameCount;
+        console.log(`Render stats:
+            FPS: ${fps.toFixed(2)}
+            Avg Frame Time: ${avgFrameTime.toFixed(2)}ms
+            Matrix Updates: ${this.model.matrixWorldNeedsUpdate ? "Yes" : "No"}`);
+
+        // Reset counters
+        this.frameCount = 0;
+        this.frameTimeSum = 0;
+        this.lastFpsUpdate = endTime;
+    }
 };
 
 // handle canvas resize
@@ -180,6 +278,35 @@ Model.prototype.dispose = function () {
         }
         this.renderer = null;
     }
+};
+
+Model.prototype.applyCanvasRendererOptimizations = function () {
+    // Scene optimizations
+    this.scene.autoUpdate = false;
+
+    // Camera optimizations
+    this.camera.matrixAutoUpdate = false;
+    this.camera.updateMatrix();
+    this.camera.updateMatrixWorld();
+
+    // Model and wrapper optimizations
+    if (this.model) {
+        this.model.matrixAutoUpdate = true; // Enable for smoother movement
+        this.model.frustumCulled = true;
+        this.model.renderOrder = 0;
+    }
+
+    this.modelWrapper.matrixAutoUpdate = false;
+    this.modelWrapper.updateMatrix();
+    this.modelWrapper.updateMatrixWorld();
+
+    // Light optimizations
+    this.scene.children.forEach((child) => {
+        if (child.isLight) {
+            child.matrixAutoUpdate = false;
+            child.updateMatrix();
+        }
+    });
 };
 
 export default Model;
