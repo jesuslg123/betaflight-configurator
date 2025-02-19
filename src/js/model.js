@@ -36,33 +36,42 @@ export const mixerList = [
 
 // 3D model
 const Model = function (wrapper, canvas) {
-    const useWebGLRenderer = this.canUseWebGLRenderer();
+    this.useWebGLRenderer = this.canUseWebGLRenderer();
 
     this.wrapper = wrapper;
     this.canvas = canvas;
 
-    if (useWebGLRenderer) {
+    if (this.useWebGLRenderer) {
         this.renderer = new THREE.WebGLRenderer({
             canvas: this.canvas[0],
             alpha: true,
-            antialias: false, // Disable antialiasing for performance
-            precision: "lowp", // Use low precision for better performance
-            powerPreference: "high-performance",
+            antialias: true, // Disable antialiasing for performance
         });
     } else {
+        console.log("Starting in low performance rendering mode");
         this.renderer = new CanvasRenderer({
             canvas: this.canvas[0],
             alpha: true,
         });
     }
 
-    // initialize render size for current canvas size
     this.renderer.setSize(this.wrapper.width(), this.wrapper.height());
+
+    // load the model including materials
+    //let model_file = this.useWebGLRenderer ? mixerList[FC.MIXER_CONFIG.mixer - 1].model : "fallback";
+    let model_file = mixerList[FC.MIXER_CONFIG.mixer - 1].model;
+    // Temporary workaround for 'custom' model until akfreak's custom model is merged.
+    if (model_file == "custom") {
+        model_file = "fallback";
+    }
 
     // Setup scene and objects
     this.scene = new THREE.Scene();
     this.modelWrapper = new THREE.Object3D();
-    this.camera = new THREE.PerspectiveCamera(60, this.wrapper.width() / this.wrapper.height(), 1, 1000);
+
+    // Stationary camera
+    this.camera = new THREE.PerspectiveCamera(60, this.wrapper.width() / this.wrapper.height(), 1, 10000);
+    // move camera away from the model
     this.camera.position.z = 125;
 
     // Setup lights
@@ -76,29 +85,18 @@ const Model = function (wrapper, canvas) {
     this.scene.add(this.camera);
     this.scene.add(this.modelWrapper);
 
-    // Apply canvas renderer optimizations if needed
-    if (!useWebGLRenderer) {
-        this.applyCanvasRendererOptimizations();
-    }
-
-    // Load the model
-    let model_file = mixerList[FC.MIXER_CONFIG.mixer - 1].image;
-    console.log("model_file", model_file);
-
-    if (model_file == "custom") {
-        model_file = "fallback";
-    }
-
     this.loadJSON(
         model_file,
         function (model) {
             this.model = model;
-            this.modelWrapper.add(model);
-            this.scene.add(this.modelWrapper);
 
-            if (!useWebGLRenderer) {
+            // Apply canvas renderer optimizations if needed
+            if (!this.useWebGLRenderer) {
                 this.applyCanvasRendererOptimizations();
             }
+
+            this.modelWrapper.add(model);
+            this.scene.add(this.modelWrapper);
 
             this.render();
         }.bind(this),
@@ -109,41 +107,116 @@ Model.prototype.loadJSON = function (model_file, callback) {
     const loader = new THREE.JSONLoader();
     const startTime = performance.now();
 
-    loader.load(`./resources/models/${model_file}.json`, function (geometry, materials) {
-        // Geometry optimizations
-        geometry.mergeVertices();
-        geometry.computeBoundingSphere();
+    loader.load(
+        `./resources/models/${model_file}.json`,
+        function (geometry, materials) {
+            this.logPreOptimizationStats(geometry);
+            this.optimizeGeometry(geometry);
 
-        // Create model
-        const model = new THREE.Mesh(geometry, materials);
-        model.scale.set(15, 15, 15);
+            const model = this.createModel(geometry, materials);
+            this.logModelStats(geometry, startTime);
 
-        const loadTime = performance.now() - startTime;
-        console.log(`Model loading stats:
-            Load time: ${loadTime.toFixed(2)}ms
-            Vertices: ${geometry.vertices ? geometry.vertices.length : "N/A"}
-            Faces: ${geometry.faces ? geometry.faces.length : "N/A"}
-            Memory: ${(geometry.attributes ? geometry.attributes.position.array.byteLength : 0) / 1024} KB`);
+            callback(model);
+        }.bind(this),
+    );
+};
 
-        callback(model);
+Model.prototype.logPreOptimizationStats = function (geometry) {
+    console.log(`Pre-optimization geometry:
+        Vertices: ${geometry.vertices ? geometry.vertices.length : "N/A"}
+        Faces: ${geometry.faces ? geometry.faces.length : "N/A"}`);
+};
+
+Model.prototype.optimizeGeometry = function (geometry) {
+    if (!this.useWebGLRenderer) {
+        this.optimizeGeometryForCanvas(geometry);
+    }
+};
+
+Model.prototype.createModel = function (geometry, materials) {
+    const model = new THREE.Mesh(geometry, materials);
+    model.scale.set(15, 15, 15);
+    return model;
+};
+
+Model.prototype.logModelStats = function (geometry, startTime) {
+    const loadTime = performance.now() - startTime;
+    console.log(`Model loading stats:
+        Load time: ${loadTime.toFixed(2)}ms
+        Final Vertices: ${geometry.vertices.length}
+        Final Faces: ${geometry.faces.length}
+        Memory: ${(geometry.attributes ? geometry.attributes.position.array.byteLength : 0) / 1024} KB`);
+};
+
+Model.prototype.optimizeGeometryForCanvas = function (geometry) {
+    // Aggressive geometry optimizations for Canvas renderer
+    geometry.mergeVertices();
+
+    // Remove duplicate vertices with moderate tolerance
+    const vertexMap = {};
+    const uniqueVertices = [];
+    const updatedFaces = [];
+
+    geometry.vertices.forEach((vertex, index) => {
+        // Round coordinates with moderate tolerance
+        const key = [Math.round(vertex.x * 7) / 7, Math.round(vertex.y * 7) / 7, Math.round(vertex.z * 7) / 7].join(
+            ",",
+        );
+
+        if (vertexMap[key] === undefined) {
+            vertexMap[key] = uniqueVertices.length;
+            uniqueVertices.push(vertex);
+        }
     });
+
+    // Update faces to use new vertex indices
+    geometry.faces.forEach((face) => {
+        const v1 = geometry.vertices[face.a];
+        const v2 = geometry.vertices[face.b];
+        const v3 = geometry.vertices[face.c];
+
+        const key1 = [Math.round(v1.x * 7) / 7, Math.round(v1.y * 7) / 7, Math.round(v1.z * 7) / 7].join(",");
+        const key2 = [Math.round(v2.x * 7) / 7, Math.round(v2.y * 7) / 7, Math.round(v2.z * 7) / 7].join(",");
+        const key3 = [Math.round(v3.x * 7) / 7, Math.round(v3.y * 7) / 7, Math.round(v3.z * 7) / 7].join(",");
+
+        // Only keep faces that have three different vertices
+        if (
+            vertexMap[key1] !== vertexMap[key2] &&
+            vertexMap[key2] !== vertexMap[key3] &&
+            vertexMap[key1] !== vertexMap[key3]
+        ) {
+            const newFace = face.clone();
+            newFace.a = vertexMap[key1];
+            newFace.b = vertexMap[key2];
+            newFace.c = vertexMap[key3];
+            updatedFaces.push(newFace);
+        }
+    });
+
+    // Update geometry with simplified data
+    geometry.vertices = uniqueVertices;
+    geometry.faces = updatedFaces;
+
+    geometry.computeBoundingSphere();
+    geometry.computeFaceNormals();
+
+    // Log optimization results
+    console.log(`Post-optimization geometry:
+        Vertices: ${geometry.vertices.length}
+        Faces: ${geometry.faces.length}
+        Reduction: ${((1 - geometry.vertices.length / uniqueVertices.length) * 100).toFixed(1)}%`);
 };
 
 Model.prototype.canUseWebGLRenderer = function () {
-    // Temporary override for testing - force Canvas renderer
-    const FORCE_CANVAS_RENDERER = true;
-    if (FORCE_CANVAS_RENDERER) {
-        return false;
-    }
+    // webgl capability detector
+    // it would seem the webgl "enabling" through advanced settings will be ignored in the future
+    // and webgl will be supported if gpu supports it by default (canary 40.0.2175.0), keep an eye on this one
+    const detector_canvas = document.createElement("canvas");
 
-    // Original WebGL detection logic (currently disabled)
-    try {
-        const canvas = document.createElement("canvas");
-        const context = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
-        return !!context;
-    } catch (e) {
-        return false;
-    }
+    return (
+        window.WebGLRenderingContext &&
+        (detector_canvas.getContext("webgl") || detector_canvas.getContext("experimental-webgl"))
+    );
 };
 
 Model.prototype.rotateTo = function (x, y, z) {
@@ -156,9 +229,6 @@ Model.prototype.rotateTo = function (x, y, z) {
     this.model.rotation.x = x;
     this.modelWrapper.rotation.y = y;
     this.model.rotation.z = z;
-
-    this.model.updateMatrix();
-    this.modelWrapper.updateMatrix();
 
     const rotateTime = performance.now() - startTime;
     if (this.rotateCount === undefined) {
@@ -191,9 +261,6 @@ Model.prototype.rotateBy = function (x, y, z) {
     this.model.rotateY(y);
     this.model.rotateZ(z);
 
-    this.model.updateMatrix();
-    this.modelWrapper.updateMatrix();
-
     const rotateTime = performance.now() - startTime;
     if (this.rotateByCount === undefined) {
         this.rotateByCount = 0;
@@ -221,41 +288,93 @@ Model.prototype.render = function () {
 
     const startTime = performance.now();
 
-    // Always update matrices for Canvas renderer
+    if (!this.useWebGLRenderer) {
+        this.applyCullingOptimizations();
+    }
+
+    const matrixTime = this.updateMatrices();
+    const renderTime = this.performRender();
+
+    this.updatePerformanceMetrics(startTime, matrixTime, renderTime);
+};
+
+Model.prototype.applyCullingOptimizations = function () {
+    const modelForward = new THREE.Vector3(0, 0, 1);
+    modelForward.applyQuaternion(this.model.quaternion);
+    const dot = modelForward.dot(new THREE.Vector3(0, 0, 1));
+    const cullBackFaces = dot > 0;
+
+    if (this.model.material) {
+        this.model.material.side = cullBackFaces ? THREE.FrontSide : THREE.DoubleSide;
+    }
+};
+
+Model.prototype.updateMatrices = function () {
+    const matrixStartTime = performance.now();
+
     this.model.updateMatrix();
     this.model.updateMatrixWorld();
     this.modelWrapper.updateMatrix();
     this.modelWrapper.updateMatrixWorld();
 
-    // draw
+    return performance.now() - matrixStartTime;
+};
+
+Model.prototype.performRender = function () {
+    const renderStartTime = performance.now();
     this.renderer.render(this.scene, this.camera);
+    return performance.now() - renderStartTime;
+};
 
+Model.prototype.updatePerformanceMetrics = function (startTime, matrixTime, renderTime) {
     const endTime = performance.now();
-    const frameTime = endTime - startTime;
+    const totalFrameTime = endTime - startTime;
 
-    // Log performance every 100 frames
     if (this.frameCount === undefined) {
-        this.frameCount = 0;
-        this.frameTimeSum = 0;
-        this.lastFpsUpdate = performance.now();
+        this.initializePerformanceCounters();
     }
 
-    this.frameCount++;
-    this.frameTimeSum += frameTime;
+    this.updateCounters(matrixTime, renderTime);
 
     if (endTime - this.lastFpsUpdate >= 1000) {
-        const fps = this.frameCount / ((endTime - this.lastFpsUpdate) / 1000);
-        const avgFrameTime = this.frameTimeSum / this.frameCount;
-        console.log(`Render stats:
-            FPS: ${fps.toFixed(2)}
-            Avg Frame Time: ${avgFrameTime.toFixed(2)}ms
-            Matrix Updates: ${this.model.matrixWorldNeedsUpdate ? "Yes" : "No"}`);
-
-        // Reset counters
-        this.frameCount = 0;
-        this.frameTimeSum = 0;
-        this.lastFpsUpdate = endTime;
+        this.logPerformanceMetrics(endTime, totalFrameTime);
+        this.resetPerformanceCounters(endTime);
     }
+};
+
+Model.prototype.initializePerformanceCounters = function () {
+    this.frameCount = 0;
+    this.matrixTimeSum = 0;
+    this.renderTimeSum = 0;
+    this.lastFpsUpdate = performance.now();
+};
+
+Model.prototype.updateCounters = function (matrixTime, renderTime) {
+    this.frameCount++;
+    this.matrixTimeSum += matrixTime;
+    this.renderTimeSum += renderTime;
+};
+
+Model.prototype.logPerformanceMetrics = function (endTime, totalFrameTime) {
+    const fps = this.frameCount / ((endTime - this.lastFpsUpdate) / 1000);
+    const avgMatrixTime = this.matrixTimeSum / this.frameCount;
+    const avgRenderTime = this.renderTimeSum / this.frameCount;
+
+    console.log(`Performance Breakdown:
+        FPS: ${fps.toFixed(2)}
+        Total Frame Time: ${totalFrameTime.toFixed(2)}ms
+        ├─ Matrix Updates: ${avgMatrixTime.toFixed(2)}ms
+        └─ Canvas Render: ${avgRenderTime.toFixed(2)}ms
+        Scene Children: ${this.scene.children.length}
+        Vertices: ${this.model.geometry.vertices ? this.model.geometry.vertices.length : "N/A"}
+        Faces: ${this.model.geometry.faces ? this.model.geometry.faces.length : "N/A"}`);
+};
+
+Model.prototype.resetPerformanceCounters = function (endTime) {
+    this.frameCount = 0;
+    this.matrixTimeSum = 0;
+    this.renderTimeSum = 0;
+    this.lastFpsUpdate = endTime;
 };
 
 // handle canvas resize
@@ -282,7 +401,7 @@ Model.prototype.dispose = function () {
 
 Model.prototype.applyCanvasRendererOptimizations = function () {
     // Scene optimizations
-    this.scene.autoUpdate = false;
+    this.scene.autoUpdate = true;
 
     // Camera optimizations
     this.camera.matrixAutoUpdate = false;
@@ -291,8 +410,8 @@ Model.prototype.applyCanvasRendererOptimizations = function () {
 
     // Model and wrapper optimizations
     if (this.model) {
-        this.model.matrixAutoUpdate = true; // Enable for smoother movement
-        this.model.frustumCulled = true;
+        this.model.matrixAutoUpdate = false;
+        this.model.frustumCulled = false;
         this.model.renderOrder = 0;
     }
 
