@@ -1,4 +1,5 @@
 import FC from "./fc";
+import { get as getConfig } from "./ConfigStorage";
 import * as THREE from "three";
 import "./utils/three/Projector";
 import { CanvasRenderer } from "./utils/three/CanvasRenderer";
@@ -188,11 +189,11 @@ Model.prototype.canUseWebGLRenderer = function () {
     // it would seem the webgl "enabling" through advanced settings will be ignored in the future
     // and webgl will be supported if gpu supports it by default (canary 40.0.2175.0), keep an eye on this one
     const detector_canvas = document.createElement("canvas");
-
-    return (
+    const isWebGLSupported =
         window.WebGLRenderingContext &&
-        (detector_canvas.getContext("webgl") || detector_canvas.getContext("experimental-webgl"))
-    );
+        (detector_canvas.getContext("webgl") || detector_canvas.getContext("experimental-webgl"));
+    const { useLegacyRenderingModel } = getConfig("useLegacyRenderingModel");
+    return isWebGLSupported && !useLegacyRenderingModel;
 };
 
 Model.prototype.rotateTo = function (x, y, z) {

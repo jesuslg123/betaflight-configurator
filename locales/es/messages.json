@@ -158,6 +158,10 @@
         "message": "Activar modo de conexión virtual",
         "description": "Text for the option to enable or disable the virtual FC"
     },
+    "useLegacyRenderingModel": {
+        "message": "Habilitar modelo de renderizado 3D antiguo (para PC de muy bajo rendimiento)",
+        "description": "Text for the option to enable or disable the usage of WebGL for the 3D model rendering"
+    },
     "cordovaForceComputerUI": {
         "message": "Usar interfaz para ordenador en lugar de la de teléfono"
     },
