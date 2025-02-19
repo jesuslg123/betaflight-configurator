@@ -105,26 +105,17 @@ const Model = function (wrapper, canvas) {
 
 Model.prototype.loadJSON = function (model_file, callback) {
     const loader = new THREE.JSONLoader();
-    const startTime = performance.now();
 
     loader.load(
         `./resources/models/${model_file}.json`,
         function (geometry, materials) {
-            this.logPreOptimizationStats(geometry);
             this.optimizeGeometry(geometry);
 
             const model = this.createModel(geometry, materials);
-            this.logModelStats(geometry, startTime);
 
             callback(model);
         }.bind(this),
     );
-};
-
-Model.prototype.logPreOptimizationStats = function (geometry) {
-    console.log(`Pre-optimization geometry:
-        Vertices: ${geometry.vertices ? geometry.vertices.length : "N/A"}
-        Faces: ${geometry.faces ? geometry.faces.length : "N/A"}`);
 };
 
 Model.prototype.optimizeGeometry = function (geometry) {
@@ -137,15 +128,6 @@ Model.prototype.createModel = function (geometry, materials) {
     const model = new THREE.Mesh(geometry, materials);
     model.scale.set(15, 15, 15);
     return model;
-};
-
-Model.prototype.logModelStats = function (geometry, startTime) {
-    const loadTime = performance.now() - startTime;
-    console.log(`Model loading stats:
-        Load time: ${loadTime.toFixed(2)}ms
-        Final Vertices: ${geometry.vertices.length}
-        Final Faces: ${geometry.faces.length}
-        Memory: ${(geometry.attributes ? geometry.attributes.position.array.byteLength : 0) / 1024} KB`);
 };
 
 Model.prototype.optimizeGeometryForCanvas = function (geometry) {
@@ -199,12 +181,6 @@ Model.prototype.optimizeGeometryForCanvas = function (geometry) {
 
     geometry.computeBoundingSphere();
     geometry.computeFaceNormals();
-
-    // Log optimization results
-    console.log(`Post-optimization geometry:
-        Vertices: ${geometry.vertices.length}
-        Faces: ${geometry.faces.length}
-        Reduction: ${((1 - geometry.vertices.length / uniqueVertices.length) * 100).toFixed(1)}%`);
 };
 
 Model.prototype.canUseWebGLRenderer = function () {
@@ -224,28 +200,9 @@ Model.prototype.rotateTo = function (x, y, z) {
         return;
     }
 
-    const startTime = performance.now();
-
     this.model.rotation.x = x;
     this.modelWrapper.rotation.y = y;
     this.model.rotation.z = z;
-
-    const rotateTime = performance.now() - startTime;
-    if (this.rotateCount === undefined) {
-        this.rotateCount = 0;
-        this.rotateTimeSum = 0;
-    }
-
-    this.rotateCount++;
-    this.rotateTimeSum += rotateTime;
-
-    if (this.rotateCount % 100 === 0) {
-        console.log(`Rotation stats:
-            Average rotation time: ${(this.rotateTimeSum / this.rotateCount).toFixed(2)}ms
-            Total rotations: ${this.rotateCount}`);
-        this.rotateCount = 0;
-        this.rotateTimeSum = 0;
-    }
 
     this.render();
 };
@@ -255,28 +212,9 @@ Model.prototype.rotateBy = function (x, y, z) {
         return;
     }
 
-    const startTime = performance.now();
-
     this.model.rotateX(x);
     this.model.rotateY(y);
     this.model.rotateZ(z);
-
-    const rotateTime = performance.now() - startTime;
-    if (this.rotateByCount === undefined) {
-        this.rotateByCount = 0;
-        this.rotateByTimeSum = 0;
-    }
-
-    this.rotateByCount++;
-    this.rotateByTimeSum += rotateTime;
-
-    if (this.rotateByCount % 100 === 0) {
-        console.log(`RotateBy stats:
-            Average rotation time: ${(this.rotateByTimeSum / this.rotateByCount).toFixed(2)}ms
-            Total rotations: ${this.rotateByCount}`);
-        this.rotateByCount = 0;
-        this.rotateByTimeSum = 0;
-    }
 
     this.render();
 };
@@ -286,16 +224,12 @@ Model.prototype.render = function () {
         return;
     }
 
-    const startTime = performance.now();
-
     if (!this.useWebGLRenderer) {
         this.applyCullingOptimizations();
     }
 
-    const matrixTime = this.updateMatrices();
-    const renderTime = this.performRender();
-
-    this.updatePerformanceMetrics(startTime, matrixTime, renderTime);
+    this.updateMatrices();
+    this.performRender();
 };
 
 Model.prototype.applyCullingOptimizations = function () {
@@ -310,71 +244,14 @@ Model.prototype.applyCullingOptimizations = function () {
 };
 
 Model.prototype.updateMatrices = function () {
-    const matrixStartTime = performance.now();
-
     this.model.updateMatrix();
     this.model.updateMatrixWorld();
     this.modelWrapper.updateMatrix();
     this.modelWrapper.updateMatrixWorld();
-
-    return performance.now() - matrixStartTime;
 };
 
 Model.prototype.performRender = function () {
-    const renderStartTime = performance.now();
     this.renderer.render(this.scene, this.camera);
-    return performance.now() - renderStartTime;
-};
-
-Model.prototype.updatePerformanceMetrics = function (startTime, matrixTime, renderTime) {
-    const endTime = performance.now();
-    const totalFrameTime = endTime - startTime;
-
-    if (this.frameCount === undefined) {
-        this.initializePerformanceCounters();
-    }
-
-    this.updateCounters(matrixTime, renderTime);
-
-    if (endTime - this.lastFpsUpdate >= 1000) {
-        this.logPerformanceMetrics(endTime, totalFrameTime);
-        this.resetPerformanceCounters(endTime);
-    }
-};
-
-Model.prototype.initializePerformanceCounters = function () {
-    this.frameCount = 0;
-    this.matrixTimeSum = 0;
-    this.renderTimeSum = 0;
-    this.lastFpsUpdate = performance.now();
-};
-
-Model.prototype.updateCounters = function (matrixTime, renderTime) {
-    this.frameCount++;
-    this.matrixTimeSum += matrixTime;
-    this.renderTimeSum += renderTime;
-};
-
-Model.prototype.logPerformanceMetrics = function (endTime, totalFrameTime) {
-    const fps = this.frameCount / ((endTime - this.lastFpsUpdate) / 1000);
-    const avgMatrixTime = this.matrixTimeSum / this.frameCount;
-    const avgRenderTime = this.renderTimeSum / this.frameCount;
-
-    console.log(`Performance Breakdown:
-        FPS: ${fps.toFixed(2)}
-        Total Frame Time: ${totalFrameTime.toFixed(2)}ms
-        ├─ Matrix Updates: ${avgMatrixTime.toFixed(2)}ms
-        └─ Canvas Render: ${avgRenderTime.toFixed(2)}ms
-        Scene Children: ${this.scene.children.length}
-        Vertices: ${this.model.geometry.vertices ? this.model.geometry.vertices.length : "N/A"}
-        Faces: ${this.model.geometry.faces ? this.model.geometry.faces.length : "N/A"}`);
-};
-
-Model.prototype.resetPerformanceCounters = function (endTime) {
-    this.frameCount = 0;
-    this.matrixTimeSum = 0;
-    this.renderTimeSum = 0;
-    this.lastFpsUpdate = endTime;
 };
 
 // handle canvas resize
